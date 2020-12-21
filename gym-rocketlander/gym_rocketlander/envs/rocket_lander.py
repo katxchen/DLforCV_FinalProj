@@ -396,6 +396,7 @@ class RocketLander(gym.Env):
             self.prev_shaping = shaping
 
             if landed:
+                print("LANDED")
                 self.landed_ticks += 1
             else:
                 self.landed_ticks = 0

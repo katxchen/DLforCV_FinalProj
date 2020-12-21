@@ -40,6 +40,9 @@ class RocketAgent:
         rate = max(1e-5, (total_epochs - current_epoch)/total_epochs)
         self.epsilon = (self.epsilon_range[0] - self.epsilon_range[1]) * rate + self.epsilon_range[1]
 
+    def update_new_model(self, model):
+        self.model = model
+
     def get_model(self) -> Model:
         """
         Build CNN neural network for reading in Rocket lander image data
@@ -91,6 +94,7 @@ class RocketAgent:
         current_state = current_state.astype('float32') / 255
         possible_actions = self.model.predict([current_state, self.action_mask])[0]
         best_action = np.argmax(possible_actions)
+        print(best_action)
         return best_action
 
     def experience_replay(self):
@@ -129,7 +133,7 @@ class RocketAgent:
         # save the model
         self.model.save(path)
 
-    def play(self, epochs=100):
+    def play(self, epochs=100, test=False):
         memory_buffer = collections.deque(maxlen=self.num_frames)
         done = False
         train = False
@@ -156,7 +160,7 @@ class RocketAgent:
                 current_step = (epoch * max_frames_per_epoch) + (t + 1)
                 if not t % self.num_frames:
                     # if timestep is 0 or every four timesteps/frames, train
-                    if np.random.uniform() < self.epsilon:
+                    if np.random.uniform() < self.epsilon and not test:
                         # pick a random action
                         action = self.env.action_space.sample()
                         if train:
@@ -176,11 +180,11 @@ class RocketAgent:
 
                 state = next_state
 
-                if not train and len(self.memory) >= min_experience:
+                if not train and len(self.memory) >= min_experience and not test:
                     train = True
-                    print("training has commenced")
+                    print("training has commenced at epoch {}".format(epoch))
 
-                if train:
+                if train and not test:
                     self.experience_replay()
 
                 episode_reward += reward
@@ -189,25 +193,36 @@ class RocketAgent:
                     break
 
             episode_rewards.append(episode_reward)
-            if not epoch % int(epochs/100):
+
+            if not test and not epoch % int(epochs/100):
                 print("Epoch: {}/{}, epsilon: {}, episode reward: {}".format(epoch, epochs, self.epsilon, episode_reward))
 
-            if train:
+            if train and not test:
                 if not epoch % update_interval:
                     print("weights updated at epoch {}".format(epoch))
                     self.update_target_network()
                 if not epoch % save_interval:
                     print("model saved at epoch {}".format(epoch))
                     self.save('./train/DQN_CNN_model_{}.h5'.format(epoch))
-                    pickle.dump(episode_reward, open('./train/rewards_{}.dump'.format(epoch), 'wb'))
-
+                    pickle.dump(episode_rewards, open('./train/rewards_{}.dump'.format(epoch), 'wb'))
+        print("final model saved")
+        self.save('./train/DQN_CNN_model_final_{}.h5'.format(epochs))
+        pickle.dump(episode_rewards, open('./train/rewards_{}.dump'.format(epochs), 'wb'))
         self.env.close()
+
+    def test(self, saved_model=None):
+        print('testing...')
+        if saved_model:
+            model = tf.keras.models.load_model(saved_model)
+            self.update_new_model(model)
+        self.play(epochs=10, test=True)
 
 
 if __name__ == '__main__':
     env = gym.make('rocketlander-v0')
     agent = RocketAgent(env, batch_size=32)
-    agent.play(epochs=int(1e3))
+    agent.play(epochs=int(100))
+    agent.test(saved_model='./train/DQN_CNN_model_100.h5')
 
 
 
